@@ -7,6 +7,7 @@ import threading
 from typing import Any
 
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, RTCConfiguration, RTCIceServer
+from aiortc.sdp import candidate_from_sdp
 
 from core.node import BaseNode
 from core.message_bus import MessageBus
@@ -192,7 +193,7 @@ class CameraNode(BaseNode):
             self.logger.warning("Received SDP answer but no peer connection exists")
             return
         try:
-            answer = RTCSessionDescription(sdp=msg["sdp"], type=msg["type"])
+            answer = RTCSessionDescription(sdp=msg["sdp"], type="answer")
             await self._pc.setRemoteDescription(answer)
             self.logger.info("Remote SDP answer applied")
         except Exception as exc:
@@ -210,11 +211,13 @@ class CameraNode(BaseNode):
                 # Empty candidate signals end-of-candidates
                 self.logger.debug("Received end-of-candidates signal")
                 return
-            candidate = RTCIceCandidate(
-                sdpMid=msg.get("sdpMid", "0"),
-                sdpMLineIndex=msg.get("sdpMLineIndex", 0),
-                candidate=candidate_str,
-            )
+            # Parse the SDP candidate string into an RTCIceCandidate
+            sdp_str = candidate_str
+            if sdp_str.startswith("candidate:"):
+                sdp_str = sdp_str[len("candidate:"):]
+            candidate = candidate_from_sdp(sdp_str)
+            candidate.sdpMid = msg.get("sdpMid", "0")
+            candidate.sdpMLineIndex = msg.get("sdpMLineIndex", 0)
             await self._pc.addIceCandidate(candidate)
         except Exception as exc:
             self.logger.warning(f"Failed to add ICE candidate: {exc}")
