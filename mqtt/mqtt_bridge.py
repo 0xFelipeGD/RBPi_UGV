@@ -1,5 +1,6 @@
 """MqttBridgeNode: bridges external MQTT broker to internal message bus."""
 
+import json
 import ssl
 import time
 from typing import Any
@@ -87,8 +88,13 @@ class MqttBridgeNode(BaseNode):
         self._keepalive = mqtt_cfg.get("keepalive", 30)
 
     def on_activate(self) -> None:
-        """Connect to broker and subscribe to internal telemetry topic."""
+        """Connect to broker and subscribe to internal bus topics for outbound MQTT."""
         self.bus.subscribe("telemetry.outbound", self._on_telemetry_outbound)
+        # Camera signaling (internal bus → MQTT)
+        self.bus.subscribe("camera.offer.outbound", self._on_camera_offer_outbound)
+        self.bus.subscribe("camera.ice.outbound", self._on_camera_ice_outbound)
+        self.bus.subscribe("camera.status", self._on_camera_status)
+
         self._client.connect_async(self._host, self._port, self._keepalive)
         self._client.loop_start()
         self.logger.info(f"Connecting to MQTT broker {self._host}:{self._port}")
@@ -108,6 +114,10 @@ class MqttBridgeNode(BaseNode):
         client.subscribe(self._topics["joystick_control"], qos=self._qos_control)
         client.subscribe(self._topics["heartbeat"], qos=self._qos_control)
         client.subscribe(self._topics["latency_ping"], qos=self._qos_control)
+        # Camera signaling (QoS 1 — reliable delivery for session setup)
+        client.subscribe(self._topics["camera_cmd"], qos=1)
+        client.subscribe(self._topics["camera_answer"], qos=1)
+        client.subscribe(self._topics["camera_ice_rcs"], qos=1)
 
     def _on_mqtt_disconnect(
         self, client: mqtt.Client, userdata: Any, flags: Any = None, rc: Any = None, properties: Any = None
@@ -143,6 +153,19 @@ class MqttBridgeNode(BaseNode):
                 # Also publish on internal bus for monitoring
                 self.bus.publish("command.ping", ping)
 
+            # --- Camera signaling (MQTT → internal bus) ---
+            elif topic == self._topics["camera_cmd"]:
+                data = json.loads(payload)
+                self.bus.publish("camera.cmd", data)
+
+            elif topic == self._topics["camera_answer"]:
+                data = json.loads(payload)
+                self.bus.publish("camera.answer", data)
+
+            elif topic == self._topics["camera_ice_rcs"]:
+                data = json.loads(payload)
+                self.bus.publish("camera.ice.inbound", data)
+
         except Exception as e:
             self.logger.error(f"Error processing MQTT message on '{msg.topic}': {e}")
 
@@ -155,3 +178,25 @@ class MqttBridgeNode(BaseNode):
                 payload,
                 qos=self._qos_telemetry,
             )
+
+    # --- Camera signaling outbound (internal bus → MQTT) ---
+
+    def _on_camera_offer_outbound(self, msg: dict) -> None:
+        """Forward SDP offer from CameraNode to MQTT broker."""
+        if self._client and self._client.is_connected():
+            payload = json.dumps(msg, separators=(",", ":")).encode("utf-8")
+            self._client.publish(self._topics["camera_offer"], payload, qos=1)
+            self.logger.info("SDP offer published to MQTT")
+
+    def _on_camera_ice_outbound(self, msg: dict) -> None:
+        """Forward ICE candidate from CameraNode to MQTT broker."""
+        if self._client and self._client.is_connected():
+            payload = json.dumps(msg, separators=(",", ":")).encode("utf-8")
+            self._client.publish(self._topics["camera_ice_ugv"], payload, qos=1)
+
+    def _on_camera_status(self, msg: dict) -> None:
+        """Forward camera status from CameraNode to MQTT broker."""
+        if self._client and self._client.is_connected():
+            payload = json.dumps(msg, separators=(",", ":")).encode("utf-8")
+            self._client.publish(self._topics["camera_status"], payload, qos=1)
+            self.logger.info(f"Camera status published: {msg.get('status', '?')}")

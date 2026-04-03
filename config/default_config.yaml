@@ -27,6 +27,12 @@ topics:
   telemetry: "ugv/telemetry"
   latency_ping: "ugv/ping"
   latency_pong: "ugv/pong"
+  camera_cmd: "ugv/camera/cmd"
+  camera_offer: "ugv/camera/offer"
+  camera_answer: "ugv/camera/answer"
+  camera_ice_ugv: "ugv/camera/ice/ugv"
+  camera_ice_rcs: "ugv/camera/ice/rcs"
+  camera_status: "ugv/camera/status"
 
 drive:
   mode: "arcade" # "arcade" or "tank"
@@ -117,6 +123,13 @@ sensors:
 
 telemetry:
   publish_rate_hz: 2 # Telemetry publish rate to MQTT
+
+camera:
+  enabled: true
+  resolution: [1280, 720]
+  framerate: 30
+  stun_servers:
+    - "stun:localhost:3478"
 
 logging:
   level: "INFO"

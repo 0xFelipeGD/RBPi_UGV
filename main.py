@@ -22,6 +22,7 @@ from drive.drive_node import DriveNode
 from safety.watchdog_node import SafetyNode
 from sensors.sensor_node import SensorNode
 from telemetry.telemetry_node import TelemetryNode
+from camera.camera_node import CameraNode
 
 
 def main() -> int:
@@ -47,10 +48,16 @@ def main() -> int:
     sensor_node = SensorNode("sensors", bus, config)
     telemetry_node = TelemetryNode("telemetry", bus, config)
 
+    # Camera node (optional — only if enabled in config)
+    camera_enabled = config.get("camera", {}).get("enabled", True)
+    camera_node = CameraNode("camera", bus, config) if camera_enabled else None
+
     # 5. Register with launcher (shutdown runs in reverse order)
     launcher = Launcher()
     launcher.register(safety_node)      # First to start, last to stop
     launcher.register(mqtt_node)
+    if camera_node is not None:
+        launcher.register(camera_node)  # After MQTT (needs signaling), before drive
     launcher.register(sensor_node)
     launcher.register(telemetry_node)
     launcher.register(drive_node)       # Last to start (needs safety + MQTT first)

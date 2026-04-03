@@ -8,14 +8,15 @@ Embedded control software running on a Raspberry Pi. Receives MQTT commands from
 
 ROS2-inspired node-based design (same pattern as RCS-Software):
 
-- **MqttBridgeNode** — Paho MQTT client: subscribes control, publishes telemetry/pong
+- **MqttBridgeNode** — Paho MQTT client: subscribes control, publishes telemetry/pong, bridges camera signaling
+- **CameraNode** — WebRTC video streaming: picamera2 capture → aiortc RTCPeerConnection (MQTT signaling)
 - **DriveNode** — 50 Hz control loop: mixing → ramp limiting → motor backend
 - **SafetyNode** — 10 Hz watchdog: heartbeat monitoring, E-stop GPIO control
 - **SensorNode** — 20 Hz polling: battery (ADS1115), temperature (DS18B20), GPS (NMEA)
 - **TelemetryNode** — 2 Hz publisher: aggregates sensor + safety data → MQTT
 - **MessageBus** — Thread-safe internal pub/sub
 - **StateManager** — Central thread-safe state store
-- **Launcher** — Node lifecycle (startup order: Safety → MQTT → Sensor → Telemetry → Drive)
+- **Launcher** — Node lifecycle (startup order: Safety → MQTT → Camera → Sensor → Telemetry → Drive)
 
 ## MQTT Interface
 
@@ -28,6 +29,12 @@ ROS2-inspired node-based design (same pattern as RCS-Software):
 | `ugv/ping` | Subscribe | 0 | 0.5 Hz |
 | `ugv/pong` | Publish | 0 | On-demand (immediate echo) |
 | `ugv/telemetry` | Publish | 1 | 2 Hz |
+| `ugv/camera/cmd` | Subscribe | 1 | On-demand |
+| `ugv/camera/offer` | Publish | 1 | On-demand |
+| `ugv/camera/answer` | Subscribe | 1 | On-demand |
+| `ugv/camera/ice/ugv` | Publish | 1 | On-demand |
+| `ugv/camera/ice/rcs` | Subscribe | 1 | On-demand |
+| `ugv/camera/status` | Publish | 1 | On-demand |
 
 ## Payload Format
 
@@ -70,6 +77,8 @@ Compact JSON — see `mqtt/serializer.py`:
 | `drive/backends/` | Motor output drivers |
 | `sensors/sensor_node.py` | Sensor polling coordinator |
 | `telemetry/telemetry_node.py` | Telemetry aggregation + publish |
+| `camera/camera_node.py` | WebRTC peer connection + signaling lifecycle |
+| `camera/pi_camera_track.py` | aiortc MediaStreamTrack: picamera2 capture / test pattern |
 | `config/default_config.yaml` | Default configuration |
 | `ugv.service` | Systemd unit file (main daemon) |
 | `ugv-monitor.service` | Systemd unit file (monitor web UI) |
@@ -78,7 +87,7 @@ Compact JSON — see `mqtt/serializer.py`:
 
 YAML-based: `config/default_config.yaml` (defaults) + `config/config.yaml` (user overrides, deep-merged).
 
-Key settings: `mqtt.*`, `drive.mode`, `drive.backend`, `safety.heartbeat_timeout`, `sensors.*`, `telemetry.publish_rate_hz`
+Key settings: `mqtt.*`, `drive.mode`, `drive.backend`, `safety.heartbeat_timeout`, `sensors.*`, `telemetry.publish_rate_hz`, `camera.enabled`, `camera.resolution`, `camera.framerate`, `camera.stun_servers`
 
 ## Running
 
