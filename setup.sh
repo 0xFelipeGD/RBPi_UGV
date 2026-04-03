@@ -85,29 +85,47 @@ if [[ ! -f "$CONFIG_FILE" && -f "$EXAMPLE_FILE" ]]; then
     echo "  Edit it: nano $CONFIG_FILE"
 fi
 
+# ── Detect install user and paths ──
+INSTALL_USER="$(whoami)"
+INSTALL_HOME="$(eval echo ~"$INSTALL_USER")"
+INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # ── Install systemd service ──
 echo "Installing systemd service..."
-# Detect actual user and home for the service file
-ACTUAL_USER="$(whoami)"
-ACTUAL_HOME="$(eval echo ~$ACTUAL_USER)"
-WORK_DIR="$SCRIPT_DIR"
 
-# Generate service file from template with correct paths
+# Generate service file from template into temp file, then copy with sudo
+# (avoids 'sed -i' permission issues on /etc/systemd/system/)
 sed \
-    -e "s|User=pi|User=$ACTUAL_USER|" \
-    -e "s|Group=pi|Group=$ACTUAL_USER|" \
-    -e "s|WorkingDirectory=.*|WorkingDirectory=$WORK_DIR|" \
-    -e "s|ExecStart=.*|ExecStart=$WORK_DIR/venv/bin/python3 $WORK_DIR/main.py|" \
-    "$SCRIPT_DIR/ugv.service" | sudo tee /etc/systemd/system/ugv.service > /dev/null
+    -e "s|User=pi|User=$INSTALL_USER|g" \
+    -e "s|Group=pi|Group=$INSTALL_USER|g" \
+    -e "s|/home/pi/ugv-software|$INSTALL_DIR|g" \
+    "$SCRIPT_DIR/ugv.service" > /tmp/ugv.service
+sudo cp /tmp/ugv.service /etc/systemd/system/ugv.service
+rm /tmp/ugv.service
+
+# Generate monitor service file from template
+sed \
+    -e "s|User=pi|User=$INSTALL_USER|g" \
+    -e "s|Group=pi|Group=$INSTALL_USER|g" \
+    -e "s|/home/pi/ugv-software|$INSTALL_DIR|g" \
+    "$SCRIPT_DIR/ugv-monitor.service" > /tmp/ugv-monitor.service
+sudo cp /tmp/ugv-monitor.service /etc/systemd/system/ugv-monitor.service
+rm /tmp/ugv-monitor.service
 
 sudo systemctl daemon-reload
 sudo systemctl enable ugv.service
-echo "[OK] systemd service installed and enabled (starts on boot)"
-echo "  Manual control:"
+sudo systemctl enable ugv-monitor.service
+echo "[OK] systemd services installed and enabled (start on boot)"
+echo "  Manual control (main):"
 echo "    sudo systemctl start ugv"
 echo "    sudo systemctl stop ugv"
 echo "    sudo systemctl status ugv"
 echo "    journalctl -u ugv -f"
+echo "  Manual control (monitor):"
+echo "    sudo systemctl start ugv-monitor"
+echo "    sudo systemctl stop ugv-monitor"
+echo "    sudo systemctl status ugv-monitor"
+echo "    journalctl -u ugv-monitor -f"
 
 # ── Done ──
 echo ""

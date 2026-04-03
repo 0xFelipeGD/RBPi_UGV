@@ -138,6 +138,23 @@ journalctl -u ugv -f
 sudo systemctl disable ugv
 ```
 
+## Monitor Service
+
+The `ugv-monitor` service runs `monitor.py`, a lightweight web UI for real-time telemetry and diagnostics. It starts automatically after the main `ugv` service.
+
+```bash
+# Check status
+sudo systemctl status ugv-monitor
+
+# View live logs
+journalctl -u ugv-monitor -f
+
+# Restart
+sudo systemctl restart ugv-monitor
+```
+
+Once running, the monitor is available at `http://<PI_IP>:8080`.
+
 ## Troubleshooting
 
 | Problem | Solution |

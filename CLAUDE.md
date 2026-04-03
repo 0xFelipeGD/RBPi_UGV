@@ -71,7 +71,8 @@ Compact JSON — see `mqtt/serializer.py`:
 | `sensors/sensor_node.py` | Sensor polling coordinator |
 | `telemetry/telemetry_node.py` | Telemetry aggregation + publish |
 | `config/default_config.yaml` | Default configuration |
-| `ugv.service` | Systemd unit file |
+| `ugv.service` | Systemd unit file (main daemon) |
+| `ugv-monitor.service` | Systemd unit file (monitor web UI) |
 
 ## Configuration
 

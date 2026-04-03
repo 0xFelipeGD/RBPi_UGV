@@ -1,5 +1,20 @@
 # RBPi_UGV — Bugs Fixed
 
+## 2026-04-03 — Systemd service installation fixes in setup.sh
+
+### BUG-016: sed substitution fails with permission denied or no input files
+- **File:** `setup.sh`
+- **Severity:** High (service installation broken on Pi -- services not installed or installed with wrong paths)
+- **Problem:** The `setup.sh` script used `sed ... | sudo tee` to substitute paths in service templates and write them to `/etc/systemd/system/`. While this piped approach should work in theory, it was failing on some Pi setups with "Permission denied" or "no input files" errors. Additionally, the `sed` patterns used `WorkingDirectory=.*` and `ExecStart=.*` which replaced the entire line value rather than matching the specific hardcoded path, making the substitution fragile and order-dependent.
+- **Fix:** Changed to a temp-file approach:
+  1. `sed` writes the substituted output to `/tmp/ugv.service` (no sudo needed for sed).
+  2. `sudo cp /tmp/ugv.service /etc/systemd/system/ugv.service` copies with root permissions.
+  3. `rm /tmp/ugv.service` cleans up.
+  - Same pattern for `ugv-monitor.service`.
+  - Changed `sed` patterns from `WorkingDirectory=.*` / `ExecStart=.*` to literal `/home/pi/ugv-software` replacement with `$INSTALL_DIR`. This is simpler, matches all occurrences in each line (with `g` flag), and preserves the rest of each line intact.
+  - Added `INSTALL_USER`, `INSTALL_HOME`, and `INSTALL_DIR` variables detected at runtime instead of relying on the previously-defined `ACTUAL_USER`/`ACTUAL_HOME`/`WORK_DIR` variables set further into the script.
+- **Template files affected:** `ugv.service` and `ugv-monitor.service` retain their hardcoded `/home/pi/ugv-software` paths as templates -- the substitution happens at install time via `setup.sh`.
+
 ## 2026-04-03 — Pong payload: add t_rx / t_tx for latency breakdown
 
 ### FEAT-002: Add UGV-side timestamps to pong payload
