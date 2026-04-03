@@ -131,9 +131,10 @@ class MqttBridgeNode(BaseNode):
                 self.bus.publish("command.heartbeat", hb)
 
             elif topic == self._topics["latency_ping"]:
+                rx_epoch_ms = int(time.time() * 1000)
                 ping = deserialize_ping(payload)
                 # Immediate pong echo on MQTT — do NOT route through internal bus
-                pong_bytes = serialize_pong(ping)
+                pong_bytes = serialize_pong(ping, rx_epoch_ms=rx_epoch_ms)
                 client.publish(
                     self._topics["latency_pong"],
                     pong_bytes,

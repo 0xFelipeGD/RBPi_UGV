@@ -1,5 +1,17 @@
 # RBPi_UGV — Bugs Fixed
 
+## 2026-04-03 — Pong payload: add t_rx / t_tx for latency breakdown
+
+### FEAT-002: Add UGV-side timestamps to pong payload
+- **Files:** `mqtt/serializer.py`, `mqtt/mqtt_bridge.py`
+- **Severity:** Enhancement (enables RCS to compute network-vs-processing latency breakdown)
+- **Problem:** The `ugv/pong` payload only echoed `t` and `seq` from the ping. The RCS could compute total RTT but had no way to separate network latency from UGV processing time, because it lacked knowledge of when the UGV received the ping and when it sent the pong.
+- **Fix:** Updated per INTERFACE_CONTRACT.md:
+  - `mqtt_bridge.py`: Capture `rx_epoch_ms = int(time.time() * 1000)` immediately upon entering the ping handler (before deserialization), and pass it to `serialize_pong`.
+  - `serializer.py`: `serialize_pong` now accepts `rx_epoch_ms` parameter and includes `t_rx` (receive timestamp) and `t_tx` (transmit timestamp, captured at serialization time) in the JSON output.
+  - Pong payload is now `{"t": <echo>, "seq": <echo>, "t_rx": <epoch_ms>, "t_tx": <epoch_ms>}`.
+  - The pong is still sent as an immediate echo within the MQTT on_message callback (not routed through the internal bus).
+
 ## 2026-04-03 — monitor.py Hat Direction Re-fix + SB CMS Button Labels
 
 ### BUG-014: H1 TRIM hat y-axis still inverted after BUG-013 patch

@@ -11,6 +11,10 @@ mqtt:
     ca_certs: ""
   client_id: "ugv-onboard"
 
+  # Required for monitor.py (pong/telemetry monitoring)
+  rcs_username: "rcs_operator"
+  rcs_password: "<rcs_operator password from Phase 1>"
+
 # Drive mode: "arcade" (stick Y=speed, X=steer) or "tank" (dual throttle)
 drive:
   mode: "arcade"

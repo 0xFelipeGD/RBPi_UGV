@@ -49,10 +49,15 @@ def deserialize_ping(payload: bytes) -> PingRequest:
     )
 
 
-def serialize_pong(ping: PingRequest) -> bytes:
-    """Echo ping back as pong — same t and seq for RTT calculation."""
+def serialize_pong(ping: PingRequest, rx_epoch_ms: int = 0) -> bytes:
+    """Echo ping back as pong with UGV-side timing for latency breakdown."""
     return json.dumps(
-        {"t": ping.remote_timestamp_ms, "seq": ping.seq},
+        {
+            "t": ping.remote_timestamp_ms,
+            "seq": ping.seq,
+            "t_rx": rx_epoch_ms,
+            "t_tx": int(time.time() * 1000),
+        },
         separators=(",", ":"),
     ).encode("utf-8")
 

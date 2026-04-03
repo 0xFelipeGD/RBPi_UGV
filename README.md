@@ -67,6 +67,8 @@ All settings are in `config/config.yaml`. Only override what you need — defaul
 | `mqtt.username` | `""` | MQTT auth username |
 | `mqtt.password` | `""` | MQTT auth password |
 | `mqtt.tls.enabled` | `true` | Use TLS encryption |
+| `mqtt.rcs_username` | `"rcs_operator"` | Monitor MQTT user (for `monitor.py`) |
+| `mqtt.rcs_password` | `""` | Monitor MQTT password (for `monitor.py`) |
 | `drive.mode` | `"arcade"` | Drive mode: `"arcade"` or `"tank"` |
 | `drive.backend` | `"gpio_pwm"` | Motor backend: `"gpio_pwm"`, `"pca9685"`, `"serial_plc"` |
 | `safety.heartbeat_timeout` | `3.0` | Seconds before E-stop (min: 1.0) |
@@ -74,6 +76,10 @@ All settings are in `config/config.yaml`. Only override what you need — defaul
 | `sensors.battery.enabled` | `true` | Enable battery ADC |
 | `sensors.temperature.enabled` | `true` | Enable temperature probes |
 | `sensors.gps.enabled` | `false` | Enable GPS module |
+
+### Monitor Credentials
+
+`monitor.py` needs to subscribe to `ugv/pong` and `ugv/telemetry` to display RTT latency and telemetry data. The broker ACL only grants `ugv_client` **write** access on those topics (not read), so the monitor creates a second MQTT client using `rcs_operator` credentials (which has read access). Set `mqtt.rcs_username` and `mqtt.rcs_password` in `config/config.yaml` with the `rcs_operator` password from your broker setup. Without these credentials, the monitor will not be able to display latency or telemetry information.
 
 ## Hardware Wiring
 

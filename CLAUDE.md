@@ -34,7 +34,7 @@ ROS2-inspired node-based design (same pattern as RCS-Software):
 Compact JSON — see `mqtt/serializer.py`:
 - Inbound joystick: `{"t", "sa", "ta", "sb", "tb", "sh", "th"}`
 - Inbound heartbeat: `{"t"}`
-- Inbound ping: `{"t", "seq"}` → immediate pong echo `{"t", "seq"}`
+- Inbound ping: `{"t", "seq"}` → immediate pong echo `{"t", "seq", "t_rx", "t_tx"}`
 - Outbound telemetry: `{"speed", "bat_v", "bat_pct", "temp_l", "temp_r", "rssi", "lat", "lon", "armed", "hb_age"}`
 
 ## Safety / Watchdog
