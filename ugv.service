@@ -1,0 +1,26 @@
+[Unit]
+Description=UGV On-Board Software
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/ugv-software
+ExecStart=/home/pi/ugv-software/venv/bin/python3 /home/pi/ugv-software/main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Safety: if the process is killed, systemd restarts it
+WatchdogSec=30
+NotifyAccess=none
+
+# Resource limits
+MemoryMax=256M
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

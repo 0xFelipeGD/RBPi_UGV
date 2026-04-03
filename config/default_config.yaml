@@ -1,0 +1,121 @@
+# UGV On-Board Software — Default Configuration
+# Copy config.yaml.example to config.yaml and edit for your setup.
+
+mqtt:
+  host: "localhost"
+  port: 8883
+  username: ""
+  password: ""
+  tls:
+    enabled: true
+    ca_certs: ""
+    certfile: ""
+    keyfile: ""
+  client_id: "ugv-onboard"
+  keepalive: 30
+  qos_control: 0
+  qos_telemetry: 1
+
+topics:
+  joystick_control: "ugv/joystick"
+  heartbeat: "ugv/heartbeat"
+  telemetry: "ugv/telemetry"
+  latency_ping: "ugv/ping"
+  latency_pong: "ugv/pong"
+
+drive:
+  mode: "arcade"               # "arcade" or "tank"
+
+  # Arcade mode mapping (stick axes)
+  arcade:
+    speed_axis: "1"            # Stick Y axis (evdev code as string)
+    steer_axis: "0"            # Stick X axis (evdev code as string)
+    speed_source: "stick"      # "stick" or "throttle"
+    steer_source: "stick"      # "stick" or "throttle"
+    max_speed: 1.0             # Scale factor (0.0-1.0)
+    steer_sensitivity: 0.7     # Steering mix ratio (0.0-1.0)
+    invert_speed: false        # True if pushing stick forward gives negative values
+    invert_steer: false
+
+  # Tank mode mapping (throttle axes)
+  tank:
+    left_axis: "2"             # Left throttle (evdev code as string)
+    right_axis: "5"            # Right throttle (evdev code as string)
+    left_source: "throttle"    # "stick" or "throttle"
+    right_source: "throttle"
+    invert_left: false
+    invert_right: false
+
+  # Motor output backend
+  backend: "gpio_pwm"         # "gpio_pwm", "pca9685", or "serial_plc"
+
+  # GPIO PWM backend config
+  gpio_pwm:
+    left_pin: 18               # BCM pin number for left motor PWM
+    right_pin: 19              # BCM pin number for right motor PWM
+    left_dir_pin: 23           # BCM pin for left motor direction (HIGH=forward)
+    right_dir_pin: 24          # BCM pin for right motor direction
+    frequency: 1000            # PWM frequency in Hz
+    min_duty: 0                # Minimum duty cycle (0-100)
+    max_duty: 100              # Maximum duty cycle (0-100)
+
+  # PCA9685 I2C backend config
+  pca9685:
+    i2c_address: 0x40
+    left_channel: 0
+    right_channel: 1
+    frequency: 50              # For standard servo ESCs
+    min_pulse_us: 1000         # Full reverse
+    center_pulse_us: 1500      # Neutral
+    max_pulse_us: 2000         # Full forward
+
+  # Serial PLC backend config
+  serial_plc:
+    port: "/dev/ttyUSB0"
+    baudrate: 115200
+    protocol: "json"           # "json" or "modbus"
+    timeout: 0.1
+
+  # Ramp rate limiter (safety: prevents instant full-speed jumps)
+  ramp_rate: 2.0               # Max change per second (1.0 = 0->full in 1s)
+
+safety:
+  heartbeat_timeout: 3.0       # Seconds without heartbeat before E-stop
+  estop_pin: 25                # BCM pin for E-stop relay (active LOW = engaged)
+  startup_armed: false         # If false, waits for first heartbeat before arming
+  ramp_down_time: 0.5          # Seconds to ramp motors to zero on E-stop
+
+sensors:
+  battery:
+    enabled: true
+    backend: "ads1115"         # "ads1115", "mcp3008", or "mock"
+    i2c_address: 0x48          # ADS1115 I2C address
+    channel: 0                 # ADC channel
+    voltage_divider_ratio: 4.0 # R1+R2/R2 (e.g., 30K+10K = 4.0 for 0-16.8V -> 0-4.2V)
+    poll_interval: 0.5         # Seconds between reads
+    cell_count: 4              # Battery cell count (for SOC estimation)
+    cell_min_v: 3.0            # Minimum cell voltage (0% SOC)
+    cell_max_v: 4.2            # Maximum cell voltage (100% SOC)
+
+  temperature:
+    enabled: true
+    backend: "ds18b20"         # "ds18b20" (1-Wire) or "mock"
+    left_sensor_id: ""         # 1-Wire ROM ID (auto-detect if empty)
+    right_sensor_id: ""
+    poll_interval: 1.0
+
+  gps:
+    enabled: false
+    port: "/dev/ttyAMA0"       # UART port for GPS module
+    baudrate: 9600
+    poll_interval: 1.0
+
+telemetry:
+  publish_rate_hz: 2           # Telemetry publish rate to MQTT
+
+logging:
+  level: "INFO"
+  file: "/var/log/ugv/ugv.log"
+  console: true
+  max_bytes: 5242880           # 5 MB log rotation
+  backup_count: 3

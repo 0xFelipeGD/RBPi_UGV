@@ -1,0 +1,6 @@
+paho-mqtt>=2.0.0
+PyYAML>=6.0
+RPi.GPIO>=0.7.1
+pyserial>=3.5
+smbus2>=0.4.0
+adafruit-circuitpython-ads1x15>=2.2.0

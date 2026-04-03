@@ -1,0 +1,36 @@
+# UGV Configuration — COPY TO config.yaml AND EDIT
+# Required: set mqtt.host, mqtt.username, mqtt.password
+
+mqtt:
+  host: "your-vps-ip-here"     # <-- CHANGE THIS
+  port: 8883
+  username: "ugv_client"        # <-- CHANGE THIS (must match broker)
+  password: "your_password"     # <-- CHANGE THIS
+  tls:
+    enabled: true
+    ca_certs: ""
+  client_id: "ugv-onboard"
+
+# Drive mode: "arcade" (stick Y=speed, X=steer) or "tank" (dual throttle)
+drive:
+  mode: "arcade"
+  backend: "gpio_pwm"
+  gpio_pwm:
+    left_pin: 18
+    right_pin: 19
+    left_dir_pin: 23
+    right_dir_pin: 24
+
+safety:
+  heartbeat_timeout: 3.0
+  estop_pin: 25
+
+sensors:
+  battery:
+    enabled: true
+    voltage_divider_ratio: 4.0
+    cell_count: 4
+  temperature:
+    enabled: true
+  gps:
+    enabled: false
