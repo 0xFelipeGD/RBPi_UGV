@@ -12,4 +12,15 @@ fi
 
 source "$VENV_DIR/bin/activate"
 cd "$SCRIPT_DIR"
-exec python3 main.py "$@"
+
+python3 monitor.py &
+MONITOR_PID=$!
+
+cleanup() {
+    kill "$MONITOR_PID" 2>/dev/null || true
+}
+trap cleanup SIGINT SIGTERM EXIT
+
+echo "[INFO] UGV Monitor → http://$(hostname -I | awk '{print $1}'):8080"
+
+python3 main.py "$@"

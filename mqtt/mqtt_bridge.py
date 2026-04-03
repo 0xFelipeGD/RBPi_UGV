@@ -51,8 +51,9 @@ class MqttBridgeNode(BaseNode):
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id=client_id,
             protocol=mqtt.MQTTv311,
-            clean_session=True,
+            clean_session=False,
         )
+        self._client.reconnect_delay_set(min_delay=1, max_delay=30)
 
         # Auth
         username = mqtt_cfg.get("username", "")
@@ -122,6 +123,7 @@ class MqttBridgeNode(BaseNode):
 
             if topic == self._topics["joystick_control"]:
                 cmd = deserialize_joystick(payload)
+                self.logger.debug(f"joystick rx: sa={cmd.stick_axes} ta={cmd.throttle_axes}")
                 self.bus.publish("command.joystick", cmd)
 
             elif topic == self._topics["heartbeat"]:

@@ -44,6 +44,10 @@ nano config/config.yaml
 # Set: mqtt.host, mqtt.username, mqtt.password
 
 # 4. Test run
+# NOTE: setup.sh enables the systemd service automatically. If the service is
+# already running, stop it first — two instances sharing the same client_id
+# will cause a broker session-takeover loop.
+sudo systemctl stop ugv
 bash run.sh
 
 # 5. Reboot to start automatically
@@ -110,6 +114,8 @@ All settings are in `config/config.yaml`. Only override what you need — defaul
 
 ## Service Management
 
+> **WARNING:** `setup.sh` installs and enables the systemd service automatically (`systemctl enable --now ugv`). If you need to run the software manually for testing (e.g. `bash run.sh`), **stop the service first**. Running both simultaneously connects two processes with the same MQTT `client_id` (`ugv-onboard`), which causes the broker to repeatedly disconnect one of them (session takeover loop).
+
 ```bash
 # Start/stop/restart
 sudo systemctl start ugv
@@ -138,6 +144,7 @@ sudo systemctl disable ugv
 | Temperature reads 0.0 | Check 1-Wire: `ls /sys/bus/w1/devices/28-*` |
 | GPS no fix | Ensure antenna has sky view, check serial: `cat /dev/ttyAMA0` |
 | Service won't start | Check logs: `journalctl -u ugv -e`, verify venv exists |
+| MQTT connects then immediately disconnects in a loop | Two instances running (systemd service + manual). Run: `sudo systemctl stop ugv`, then `bash run.sh` |
 
 ## Testing
 
