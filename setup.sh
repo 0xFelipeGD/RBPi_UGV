@@ -46,6 +46,9 @@ sudo apt-get install -y -qq \
     python3-dev \
     python3-smbus \
     i2c-tools \
+    python3-picamera2 \
+    python3-libcamera \
+    python3-numpy \
     2>/dev/null || echo "[WARN] Some packages may need manual install"
 
 # ── Enable interfaces ──
