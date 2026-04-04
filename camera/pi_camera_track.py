@@ -86,9 +86,11 @@ class PiCameraTrack(MediaStreamTrack):
             wait = 1.0 / self._framerate
             await asyncio.sleep(wait)
 
-        # Capture frame
+        # Capture frame (run in executor to avoid blocking the event loop —
+        # blocking kills RTP/ICE packet processing, especially over TURN relay)
         if self._picam is not None:
-            array = self._picam.capture_array("main")
+            loop = asyncio.get_event_loop()
+            array = await loop.run_in_executor(None, self._picam.capture_array, "main")
             # picamera2 RGB888 may deliver BGR on some libcamera versions
             array = array[:, :, ::-1]
         else:
