@@ -259,9 +259,15 @@ class CameraNode(BaseNode):
             self.bus.publish("camera.ice.outbound", ice_dict)
             self.logger.debug(f"ICE candidate published: {candidate.candidate[:40]}...")
 
-        @self._pc.on("connectionstatechange")
+        # Capture reference so callback only fires for THIS pc, not a replacement
+        pc = self._pc
+
+        @pc.on("connectionstatechange")
         async def on_connection_state_change() -> None:
-            state = self._pc.connectionState
+            # Ignore events from old peer connections after cleanup/restart
+            if self._pc is not pc:
+                return
+            state = pc.connectionState
             self.logger.info(f"WebRTC connection state: {state}")
             if state == "connected":
                 self.bus.publish("camera.status", {
@@ -269,7 +275,8 @@ class CameraNode(BaseNode):
                     "resolution": list(self._resolution),
                     "fps": self._framerate,
                 })
-            elif state in ("failed", "closed"):
-                self.bus.publish("camera.status", {"status": "stopped"})
+            elif state == "failed":
+                self.bus.publish("camera.status", {"status": "error", "error": "connection failed"})
             elif state == "disconnected":
                 self.bus.publish("camera.status", {"status": "error", "error": "peer disconnected"})
+            # "closed" is expected during cleanup — don't publish anything
