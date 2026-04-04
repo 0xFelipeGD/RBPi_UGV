@@ -96,6 +96,10 @@ class PiCameraTrack(MediaStreamTrack):
         else:
             array = self._generate_test_pattern()
 
+        # Debug: log frame production rate
+        if self._pts % 30 == 0:
+            logger.info(f"recv() frame #{self._pts} produced")
+
         # Convert numpy array (RGB) to av.VideoFrame
         frame = VideoFrame.from_ndarray(array, format="rgb24")
         frame.pts = self._pts
