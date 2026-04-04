@@ -39,6 +39,7 @@ class CameraNode(BaseNode):
         self._resolution: tuple[int, int] = (1280, 720)
         self._framerate: int = 30
         self._stun_servers: list[str] = []
+        self._turn_servers: list[dict] = []
 
         # WebRTC state
         self._pc: RTCPeerConnection | None = None
@@ -59,9 +60,10 @@ class CameraNode(BaseNode):
         self._resolution = (int(res[0]), int(res[1]))
         self._framerate = int(cam_cfg.get("framerate", 30))
         self._stun_servers = cam_cfg.get("stun_servers", [])
+        self._turn_servers = cam_cfg.get("turn_servers", [])
         self.logger.info(
             f"Camera configured: {self._resolution[0]}x{self._resolution[1]}"
-            f"@{self._framerate}fps, STUN={self._stun_servers}"
+            f"@{self._framerate}fps, STUN={len(self._stun_servers)}, TURN={len(self._turn_servers)}"
         )
 
     def on_activate(self) -> None:
@@ -148,6 +150,15 @@ class CameraNode(BaseNode):
             ice_servers = []
             for url in self._stun_servers:
                 ice_servers.append(RTCIceServer(urls=[url]))
+
+            # Add TURN servers (relay for symmetric NAT traversal)
+            for turn in self._turn_servers:
+                ice_servers.append(RTCIceServer(
+                    urls=[turn["url"]],
+                    username=turn.get("username", ""),
+                    credential=turn.get("credential", ""),
+                ))
+
             rtc_config = RTCConfiguration(iceServers=ice_servers)
 
             # Create peer connection

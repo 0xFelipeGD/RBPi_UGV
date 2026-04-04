@@ -129,7 +129,11 @@ camera:
   resolution: [1280, 720]
   framerate: 30
   stun_servers:
-    - "stun:localhost:3478"
+    - "stun:72.60.132.162:3478"
+  turn_servers:
+    - url: "turn:72.60.132.162:3478"
+      username: "ugv"
+      credential: "ugvturn2026"
 
 logging:
   level: "INFO"
