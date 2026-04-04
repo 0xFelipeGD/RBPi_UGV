@@ -38,3 +38,8 @@ sensors:
     enabled: true
   gps:
     enabled: false
+
+# WebRTC camera streaming (Pi Camera Module)
+camera:
+  stun_servers:
+    - "stun:your-vps-ip-here:3478"  # <-- CHANGE THIS (same VPS IP as mqtt.host)
