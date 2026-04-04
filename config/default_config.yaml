@@ -126,8 +126,8 @@ telemetry:
 
 camera:
   enabled: true
-  resolution: [640, 480]
-  framerate: 15
+  resolution: [1280, 720]
+  framerate: 30
   stun_servers:
     - "stun:localhost:3478"
 

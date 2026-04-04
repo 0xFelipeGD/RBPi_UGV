@@ -98,10 +98,6 @@ class PiCameraTrack(MediaStreamTrack):
         frame.time_base = Fraction(self._time_base_num, self._time_base_den)
         self._pts += 1
 
-        # Log every second to confirm recv() is being called
-        if self._pts % self._framerate == 0:
-            logger.info(f"recv() delivering frame #{self._pts}")
-
         return frame
 
     def _generate_test_pattern(self) -> np.ndarray:
