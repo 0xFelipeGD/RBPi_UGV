@@ -13,21 +13,27 @@ from core.node import BaseNode
 from core.message_bus import MessageBus
 from camera.pi_camera_track import PiCameraTrack
 
-# Force frequent VP8 keyframes so the browser can recover from packet loss.
-# Without this, aiortc sends one keyframe at the start and then only P-frames.
-# Any lost packet breaks the entire decode chain until the next keyframe.
+# Monkey-patch VP8 encoder for better quality over TURN relay:
+# 1. Increase bitrate from 500kbps default to 2000kbps (720p needs it)
+# 2. Force keyframe every 30 frames (~1s at 30fps) so browser recovers from packet loss
 import aiortc.codecs.vpx as _vpx
 
+_vpx_orig_init = _vpx.Vp8Encoder.__init__
 _vpx_orig_encode = _vpx.Vp8Encoder.encode
+
+def _vpx_patched_init(self, *args, **kwargs):
+    _vpx_orig_init(self, *args, **kwargs)
+    self._Vp8Encoder__target_bitrate = 2_000_000  # 2 Mbps (default is 500kbps)
 
 def _vpx_kf_encode(self, frame, force_keyframe=False):
     if not hasattr(self, '_kf_counter'):
         self._kf_counter = 0
     self._kf_counter += 1
-    if self._kf_counter % 15 == 0:  # keyframe every ~1 second at 15fps
+    if self._kf_counter % 30 == 0:  # keyframe every ~1 second at 30fps
         force_keyframe = True
     return _vpx_orig_encode(self, frame, force_keyframe)
 
+_vpx.Vp8Encoder.__init__ = _vpx_patched_init
 _vpx.Vp8Encoder.encode = _vpx_kf_encode
 
 
