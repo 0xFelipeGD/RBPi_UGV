@@ -89,6 +89,8 @@ class PiCameraTrack(MediaStreamTrack):
         # Capture frame
         if self._picam is not None:
             array = self._picam.capture_array("main")
+            # picamera2 RGB888 may deliver BGR on some libcamera versions
+            array = array[:, :, ::-1]
         else:
             array = self._generate_test_pattern()
 
