@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from fractions import Fraction
 
 import numpy as np
 from aiortc import MediaStreamTrack
@@ -94,7 +95,7 @@ class PiCameraTrack(MediaStreamTrack):
         # Convert numpy array (RGB) to av.VideoFrame
         frame = VideoFrame.from_ndarray(array, format="rgb24")
         frame.pts = self._pts
-        frame.time_base = f"{self._time_base_num}/{self._time_base_den}"
+        frame.time_base = Fraction(self._time_base_num, self._time_base_den)
         self._pts += 1
 
         # Log every second to confirm recv() is being called
