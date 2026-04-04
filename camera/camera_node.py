@@ -13,6 +13,23 @@ from core.node import BaseNode
 from core.message_bus import MessageBus
 from camera.pi_camera_track import PiCameraTrack
 
+# Force frequent VP8 keyframes so the browser can recover from packet loss.
+# Without this, aiortc sends one keyframe at the start and then only P-frames.
+# Any lost packet breaks the entire decode chain until the next keyframe.
+import aiortc.codecs.vpx as _vpx
+
+_vpx_orig_encode = _vpx.Vp8Encoder.encode
+
+def _vpx_kf_encode(self, frame, force_keyframe=False):
+    if not hasattr(self, '_kf_counter'):
+        self._kf_counter = 0
+    self._kf_counter += 1
+    if self._kf_counter % 15 == 0:  # keyframe every ~1 second at 15fps
+        force_keyframe = True
+    return _vpx_orig_encode(self, frame, force_keyframe)
+
+_vpx.Vp8Encoder.encode = _vpx_kf_encode
+
 
 class CameraNode(BaseNode):
     """WebRTC video streaming node.
