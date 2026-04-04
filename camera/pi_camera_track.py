@@ -15,7 +15,7 @@ logger = logging.getLogger("ugv.camera.track")
 try:
     from picamera2 import Picamera2
 
-    _HAS_PICAMERA2 = True
+    _HAS_PICAMERA2 = False  # TEMP: force test pattern to diagnose TURN relay
 except ImportError:
     _HAS_PICAMERA2 = False
     logger.warning("picamera2 not available — using test pattern generator")
