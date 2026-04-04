@@ -203,6 +203,12 @@ class CameraNode(BaseNode):
         if self._pc is None:
             self.logger.warning("Received SDP answer but no peer connection exists")
             return
+        # Ignore duplicate answers (multiple WS clients may send the same answer)
+        if self._pc.signalingState != "have-local-offer":
+            self.logger.debug(
+                f"Ignoring SDP answer in state '{self._pc.signalingState}'"
+            )
+            return
         try:
             answer = RTCSessionDescription(sdp=msg["sdp"], type="answer")
             await self._pc.setRemoteDescription(answer)
