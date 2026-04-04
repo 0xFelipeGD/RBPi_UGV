@@ -80,6 +80,8 @@ Compact JSON — see `mqtt/serializer.py`:
 | `camera/camera_node.py` | WebRTC peer connection + signaling lifecycle |
 | `camera/pi_camera_track.py` | aiortc MediaStreamTrack: picamera2 capture / test pattern |
 | `config/default_config.yaml` | Default configuration |
+| `checkup.sh` | Preflight check script (run before setup.sh) |
+| `setup.sh` | First-time setup: install deps, create venv, install service |
 | `ugv.service` | Systemd unit file (main daemon) |
 | `ugv-monitor.service` | Systemd unit file (monitor web UI) |
 
@@ -92,6 +94,7 @@ Key settings: `mqtt.*`, `drive.mode`, `drive.backend`, `safety.heartbeat_timeout
 ## Running
 
 ```bash
+./checkup.sh                    # Preflight: verify Pi is ready (run before setup)
 ./setup.sh                      # First time: install deps, create venv, install service
 ./run.sh                        # Manual run
 sudo systemctl start ugv        # Systemd service
