@@ -11,14 +11,27 @@ from av import VideoFrame
 
 logger = logging.getLogger("ugv.camera.track")
 
-# Try to import picamera2 — only available on Raspberry Pi OS with libcamera
+# Try to import picamera2 — only available on Raspberry Pi OS with libcamera.
+# This import frequently fails when the venv was created WITHOUT
+# --system-site-packages, because python3-picamera2 / python3-libcamera are
+# installed via apt (they bundle compiled libcamera bindings and cannot be
+# pip-installed). When this happens we fall back to an SMPTE test pattern,
+# but the warning below MUST stay loud and explicit so the operator can find
+# it in `journalctl -u ugv` instead of silently shipping a rainbow video feed.
+_PICAMERA2_IMPORT_ERROR: str | None = None
 try:
     from picamera2 import Picamera2
 
     _HAS_PICAMERA2 = True
-except ImportError:
+except ImportError as _exc:
     _HAS_PICAMERA2 = False
-    logger.warning("picamera2 not available — using test pattern generator")
+    _PICAMERA2_IMPORT_ERROR = str(_exc)
+    logger.warning(
+        "CameraNode: picamera2 unavailable (%s) -- using SMPTE test pattern. "
+        "Check that the venv was created with --system-site-packages and that "
+        "the apt package python3-picamera2 is installed.",
+        _PICAMERA2_IMPORT_ERROR,
+    )
 
 
 class PiCameraTrack(MediaStreamTrack):
@@ -50,18 +63,37 @@ class PiCameraTrack(MediaStreamTrack):
     def start_camera(self) -> None:
         """Initialise and start the camera hardware (or test-pattern mode)."""
         if _HAS_PICAMERA2:
-            self._picam = Picamera2()
-            config = self._picam.create_video_configuration(
-                main={"size": (self._width, self._height), "format": "RGB888"},
-            )
-            self._picam.configure(config)
-            self._picam.start()
-            logger.info(
-                f"picamera2 started: {self._width}x{self._height}@{self._framerate}fps"
-            )
+            try:
+                self._picam = Picamera2()
+                config = self._picam.create_video_configuration(
+                    main={"size": (self._width, self._height), "format": "RGB888"},
+                )
+                self._picam.configure(config)
+                self._picam.start()
+                logger.info(
+                    f"picamera2 started: {self._width}x{self._height}@{self._framerate}fps"
+                )
+                return
+            except Exception as exc:
+                # Hardware/runtime failure (no camera attached, libcamera mismatch,
+                # permission denied, etc). Fall back LOUDLY to test pattern so the
+                # operator can see WHY video is wrong in `journalctl -u ugv`.
+                self._picam = None
+                logger.warning(
+                    "CameraNode: picamera2 construction/start FAILED (%s) -- "
+                    "falling back to SMPTE test pattern. Check that the camera "
+                    "is connected, the libcamera stack is healthy, and the "
+                    "venv was created with --system-site-packages.",
+                    exc,
+                )
         else:
-            logger.info(
-                f"Test-pattern mode: {self._width}x{self._height}@{self._framerate}fps"
+            logger.warning(
+                "CameraNode: picamera2 module not importable -- using SMPTE "
+                "test pattern at %dx%d@%dfps. Reason: %s",
+                self._width,
+                self._height,
+                self._framerate,
+                _PICAMERA2_IMPORT_ERROR or "unknown",
             )
 
     def stop_camera(self) -> None:

@@ -1,5 +1,20 @@
 # RBPi_UGV — Bugs Fixed
 
+## 2026-04-08 — Camera silently falls back to SMPTE test pattern after fresh setup
+
+### BUG-017: setup.sh creates venv without --system-site-packages, breaking picamera2 import
+- **Files:** `setup.sh`, `camera/pi_camera_track.py`
+- **Severity:** High (camera streams a rainbow test pattern instead of real video on first install; failure mode is silent)
+- **Symptom:** After running `bash setup.sh` on a fresh Pi, the WebRTC stream shows the SMPTE colour-bar test pattern instead of the live Pi Camera Module 3 feed. No errors in `journalctl -u ugv` -- the operator only notices because the video looks wrong.
+- **Root cause:** `setup.sh` installs `python3-picamera2` and `python3-libcamera` via apt (lines 49-50) because those packages bundle compiled libcamera bindings and cannot be pip-installed on Raspberry Pi OS. However the venv was created with plain `$PYTHON -m venv "$VENV_DIR"`, which isolates the venv from system site-packages. As a result `from picamera2 import Picamera2` raised `ImportError` inside the venv, `pi_camera_track.py` set `_HAS_PICAMERA2 = False`, and the code path silently selected the test pattern generator. The only log line was a single `logger.warning("picamera2 not available -- using test pattern generator")` at module import time, which is easy to miss.
+- **Fix:**
+  1. `setup.sh`: changed venv creation to `$PYTHON -m venv --system-site-packages "$VENV_DIR"` so the apt-installed picamera2/libcamera are visible inside the venv.
+  2. `setup.sh`: added a self-healing check -- if `$VENV_DIR` already exists, grep `pyvenv.cfg` for `include-system-site-packages = true`. If absent, print a loud warning and rebuild the venv from scratch with the correct flag. This makes `bash setup.sh` idempotent and self-repairing for anyone who already hit the bug.
+  3. `setup.sh`: after activation and before `pip install`, added a sanity check that runs `python -c "from picamera2 import Picamera2"`. If the import fails, prints a loud `[WARN]` block telling the operator that the camera will fall back to the test pattern and how to fix it. The check does not abort -- a Pi without a camera attached should still be able to run setup.
+  4. `camera/pi_camera_track.py`: captured the `ImportError` message and beefed up the module-level warning to explicitly call out the venv flag and the apt package, so the failure reason is always visible in `journalctl -u ugv`.
+  5. `camera/pi_camera_track.py`: wrapped `Picamera2()` construction and `start()` in a try/except inside `start_camera()`. If construction fails at runtime (no camera attached, libcamera version mismatch, permission denied, etc.) the node now logs a WARNING explaining the cause and falls back to the test pattern instead of crashing the camera node or silently producing fake video. The "no picamera2 module" branch also got upgraded from `logger.info` to `logger.warning` for the same visibility reason.
+- **Notes:** apt install list, `requirements.txt`, and all other files left untouched -- the fix is surgical to setup.sh and pi_camera_track.py.
+
 ## 2026-04-03 — Systemd service installation fixes in setup.sh
 
 ### BUG-016: sed substitution fails with permission denied or no input files

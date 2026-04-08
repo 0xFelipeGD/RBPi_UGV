@@ -63,12 +63,35 @@ if ! grep -q "dtoverlay=w1-gpio" /boot/firmware/config.txt 2>/dev/null; then
 fi
 
 # ── Virtual environment ──
+# IMPORTANT: must be created with --system-site-packages so the venv can import
+# python3-picamera2 and python3-libcamera, which are installed via apt above
+# (they bundle compiled libcamera bindings and cannot be pip-installed on Pi OS).
+# Without this flag, camera/pi_camera_track.py silently falls back to the SMPTE
+# test pattern. See BUGS_FIXED.md (BUG-017).
 VENV_DIR="$SCRIPT_DIR/venv"
-if [[ ! -d "$VENV_DIR" ]]; then
-    echo "Creating virtual environment..."
-    $PYTHON -m venv "$VENV_DIR"
+if [[ -d "$VENV_DIR" ]]; then
+    # Self-heal: detect old venv created without --system-site-packages
+    if ! grep -q "include-system-site-packages = true" "$VENV_DIR/pyvenv.cfg" 2>/dev/null; then
+        echo "[WARN] Existing venv was created WITHOUT --system-site-packages."
+        echo "[WARN] This causes the camera to silently fall back to a test pattern"
+        echo "[WARN] because picamera2 (apt-installed) cannot be imported."
+        echo "[WARN] Rebuilding venv at: $VENV_DIR"
+        rm -rf "$VENV_DIR"
+        $PYTHON -m venv --system-site-packages "$VENV_DIR"
+        echo "[OK] Venv rebuilt with --system-site-packages"
+    fi
+else
+    echo "Creating virtual environment (with --system-site-packages for picamera2)..."
+    $PYTHON -m venv --system-site-packages "$VENV_DIR"
 fi
 source "$VENV_DIR/bin/activate"
+
+# ── Sanity check: picamera2 importable from venv? ──
+if ! python -c "from picamera2 import Picamera2" 2>/dev/null; then
+    echo "[WARN] picamera2 not importable from venv -- camera will fall back to test pattern."
+    echo "[WARN] Run: sudo apt install python3-picamera2 python3-libcamera"
+    echo "[WARN] (continuing anyway -- this is OK if no camera is attached)"
+fi
 
 # ── Install Python dependencies ──
 echo "Installing Python dependencies..."
