@@ -14,7 +14,7 @@ import queue
 import sys
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -546,7 +546,16 @@ if __name__ == "__main__":
     rcs_client = _start_rcs_mqtt()
     print(f"UGV Monitor → http://0.0.0.0:{port}")
     print(f"Open in browser: http://<PI_IP>:{port}")
-    server = HTTPServer(("0.0.0.0", port), _Handler)
+    # Use ThreadingHTTPServer (not HTTPServer) so the long-lived SSE stream
+    # on /events does not block regular HTTP requests. With single-threaded
+    # HTTPServer, a stuck or leaked SSE connection would hog the one worker
+    # thread forever and every new request would pile up in the kernel's
+    # accept queue until the server appeared dead. The shared state here
+    # (_state, _sse_queues) is already protected by _state_lock and
+    # _sse_lock, so threading is safe without any additional changes.
+    server = ThreadingHTTPServer(("0.0.0.0", port), _Handler)
+    # Daemon threads so Ctrl-C doesn't wait for stuck SSE streams to drain.
+    server.daemon_threads = True
     try:
         server.serve_forever()
     except KeyboardInterrupt:
