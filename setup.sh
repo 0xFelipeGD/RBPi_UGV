@@ -215,6 +215,65 @@ if command -v tailscale &>/dev/null; then
     esac
 fi
 
+# ── Tailscale MTU udev rule for WebRTC direct-path acceleration ──
+# Tailscale defaults tailscale0's MTU to a conservative 1280 bytes. With
+# IPv6 (40) + UDP (8) + RTP (12) + SRTP auth tag (16) = 76 bytes of header
+# overhead, that leaves only 1204 bytes for the VP8 payload — dangerously
+# close to aiortc's default ~1200-byte RTP packet size. In practice, some
+# keyframe packets exceed the threshold and are silently dropped on the
+# direct tailnet candidate pair, the RCS browser never assembles a
+# complete frame, and the operator UI shows "STREAMING" with frozen video.
+#
+# Fix: install a udev rule that bumps tailscale0's MTU to 1400 every time
+# the interface is created. That gives 1400 - 76 = 1324 bytes of payload
+# room, with ~124 bytes of headroom. The outer WireGuard encapsulation
+# still fits comfortably inside a standard 1500-byte Ethernet MTU on the
+# underlying network.
+#
+# udev runs the rule as root on interface-add events, so there is no
+# runtime sudo, no sudoers rule, and no manual re-apply after reboot or
+# tailscale up/down. Idempotent and persistent.
+#
+# This rule has to be installed on BOTH ends of the tailnet (RCS PC and
+# UGV Pi) because MTU is a per-interface property — if either side
+# advertises 1280, the effective path MTU is 1280. RCS-Software/setup.sh
+# installs the same rule on the operator PC side.
+
+UDEV_RULE_FILE="/etc/udev/rules.d/99-tailscale-mtu.rules"
+UDEV_RULE_CONTENT='# Managed by RBPi_UGV/setup.sh — do not edit by hand.
+# Bump tailscale0 MTU from Tailscale'"'"'s default 1280 to 1400 so WebRTC
+# SRTP packets fit on the direct tailnet candidate pair with headroom
+# for IPv6 + UDP + RTP + SRTP headers. Required for Option B
+# (tailnet-direct WebRTC acceleration) in the UGV camera path.
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="tailscale0", RUN+="/sbin/ip link set dev %k mtu 1400"
+'
+
+if command -v udevadm &>/dev/null; then
+    if [[ -f "$UDEV_RULE_FILE" ]] && \
+       diff -q <(printf '%s' "$UDEV_RULE_CONTENT") "$UDEV_RULE_FILE" >/dev/null 2>&1; then
+        echo "[OK] Tailscale MTU udev rule already installed at $UDEV_RULE_FILE"
+    else
+        echo "[INFO] Installing Tailscale MTU udev rule at $UDEV_RULE_FILE..."
+        printf '%s' "$UDEV_RULE_CONTENT" | sudo tee "$UDEV_RULE_FILE" >/dev/null
+        sudo udevadm control --reload-rules 2>/dev/null || true
+        # If tailscale0 is already up, apply the MTU now
+        if ip link show tailscale0 >/dev/null 2>&1; then
+            CURRENT_MTU=$(ip -json link show tailscale0 | python3 -c "import sys,json; print(json.load(sys.stdin)[0].get('mtu','?'))" 2>/dev/null || echo "?")
+            if [[ "$CURRENT_MTU" != "1400" ]]; then
+                echo "[INFO] tailscale0 is already up (current MTU: $CURRENT_MTU) — applying new MTU immediately..."
+                sudo ip link set dev tailscale0 mtu 1400 || {
+                    echo "[WARN] Could not set MTU on tailscale0 — the udev rule will apply on the next tailscale restart."
+                }
+            fi
+        fi
+        echo "[OK] Tailscale MTU udev rule installed."
+    fi
+else
+    echo "[WARN] udevadm not found — skipping Tailscale MTU udev rule install."
+    echo "[WARN] You may need to manually run 'sudo ip link set dev tailscale0 mtu 1400'"
+    echo "[WARN] after each tailscale up for the camera to work on the direct tailnet path."
+fi
+
 # ── Done ──
 echo ""
 echo "============================================"
