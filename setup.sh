@@ -153,6 +153,68 @@ echo "    sudo systemctl stop ugv-monitor"
 echo "    sudo systemctl status ugv-monitor"
 echo "    journalctl -u ugv-monitor -f"
 
+# ── Tailscale bootstrap ──
+echo ""
+echo "--------------------------------------------"
+echo "  Tailscale bootstrap"
+echo "--------------------------------------------"
+
+if command -v tailscale &>/dev/null; then
+    echo "[OK] Tailscale already installed: $(tailscale version 2>/dev/null | head -1)"
+else
+    echo "Installing Tailscale via official script..."
+    if curl -fsSL https://tailscale.com/install.sh | sh; then
+        echo "[OK] Tailscale installed"
+    else
+        echo "[WARN] Tailscale install failed (no internet, arch mismatch, etc.)"
+        echo "[WARN] You can retry later with: curl -fsSL https://tailscale.com/install.sh | sh"
+        echo "[WARN] Continuing setup without Tailscale — UGV will still work over direct MQTT."
+    fi
+fi
+
+# Only proceed with auth if tailscale binary is now available
+if command -v tailscale &>/dev/null; then
+    BACKEND_STATE=$(sudo tailscale status --json 2>/dev/null \
+        | python3 -c "import sys,json; print(json.load(sys.stdin).get('BackendState','Unknown'))" \
+        2>/dev/null || echo "Unknown")
+
+    case "$BACKEND_STATE" in
+        Running)
+            SELF_IP=$(sudo tailscale status --json 2>/dev/null \
+                | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('Self',{}).get('TailscaleIPs',[''])[0])" \
+                2>/dev/null || echo "unknown")
+            echo "[OK] Tailscale already authenticated — tailnet IP: $SELF_IP"
+            ;;
+        NeedsLogin|Stopped|NoState)
+            if [[ -n "${TAILSCALE_AUTHKEY:-}" ]]; then
+                echo "Authenticating Tailscale with provided auth key..."
+                if sudo tailscale up --authkey="$TAILSCALE_AUTHKEY" --hostname="$(hostname)"; then
+                    echo "[OK] Tailscale authenticated via TAILSCALE_AUTHKEY"
+                else
+                    echo "[WARN] tailscale up failed — retry manually with 'sudo tailscale up'"
+                fi
+            else
+                echo ""
+                echo "════════════════════════════════════════════════════════════════"
+                echo "  TAILSCALE FIRST-TIME LOGIN REQUIRED"
+                echo "════════════════════════════════════════════════════════════════"
+                echo "The next command will print a URL. Open it in your browser on"
+                echo "any device, log in to your Tailscale account, and this Pi will"
+                echo "be added to your tailnet. The session persists across reboots."
+                echo ""
+                read -rp "Press Enter to continue (or Ctrl-C to skip Tailscale setup)..."
+                sudo tailscale up --hostname="$(hostname)" || {
+                    echo "[WARN] tailscale up failed — you can retry manually with 'sudo tailscale up'"
+                }
+            fi
+            ;;
+        *)
+            echo "[WARN] Tailscale BackendState is '$BACKEND_STATE' — skipping auth."
+            echo "[WARN] Check status manually with: sudo tailscale status"
+            ;;
+    esac
+fi
+
 # ── Done ──
 echo ""
 echo "============================================"
