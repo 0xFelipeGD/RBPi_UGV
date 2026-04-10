@@ -43,11 +43,24 @@ class PiCameraTrack(MediaStreamTrack):
 
     kind = "video"
 
-    def __init__(self, width: int = 1280, height: int = 720, framerate: int = 30) -> None:
+    def __init__(
+        self,
+        width: int = 1280,
+        height: int = 720,
+        framerate: int = 30,
+        noir_correction: dict | None = None,
+    ) -> None:
         super().__init__()
         self._width = width
         self._height = height
         self._framerate = framerate
+
+        # NoIR color-correction config. None or empty dict → no correction
+        # applied (use picamera2 defaults, whatever they may be for the
+        # specific camera module). See config/default_config.yaml for the
+        # recommended starting values for the Pi Camera Module 3 NoIR under
+        # typical indoor lighting.
+        self._noir_correction: dict = noir_correction or {}
 
         # Frame timing
         self._pts = 0
@@ -60,6 +73,92 @@ class PiCameraTrack(MediaStreamTrack):
         # Test-pattern state (used when picamera2 is unavailable)
         self._frame_count = 0
 
+    def _apply_noir_color_correction(self) -> None:
+        """Apply NoIR color-correction controls to the running camera.
+
+        The Pi Camera Module 3 NoIR has no infrared cut filter, so under
+        normal indoor lighting (LED, fluorescent) IR bleeds into all three
+        RGB channels, making whites look pinkish and dark colors look
+        purple/blue. picamera2 exposes AWB-mode, manual color gains, and
+        a full 3x3 color correction matrix — all three can be tuned here
+        via config to compensate.
+
+        Config model (read from self._noir_correction):
+          enabled           — bool, master switch. If False, skip entirely.
+          colour_gains      — optional [red, blue] list. If set, AWB is
+                              disabled and these manual gains are used.
+          awb_mode          — optional integer libcamera AwbModeEnum value
+                              (0-7) used only when colour_gains is None.
+          colour_correction_matrix — optional 9-element list (row-major
+                              3x3 matrix). Independent of awb / gains.
+                              Skip if None.
+
+        Silently no-op on any error or when picamera2 is not running —
+        we never want a color tuning failure to take down the camera.
+        """
+        if self._picam is None:
+            return
+        cfg = self._noir_correction or {}
+        if not cfg.get("enabled", True):
+            logger.info("NoIR color correction: disabled by config")
+            return
+
+        controls_to_set: dict = {}
+
+        colour_gains = cfg.get("colour_gains")
+        awb_mode = cfg.get("awb_mode")
+        ccm = cfg.get("colour_correction_matrix")
+
+        if colour_gains is not None:
+            try:
+                r_gain, b_gain = float(colour_gains[0]), float(colour_gains[1])
+                controls_to_set["AwbEnable"] = False
+                controls_to_set["ColourGains"] = (r_gain, b_gain)
+            except (TypeError, ValueError, IndexError) as exc:
+                logger.warning(
+                    "NoIR color correction: invalid colour_gains %r (%s) — skipping",
+                    colour_gains, exc,
+                )
+        elif awb_mode is not None:
+            try:
+                controls_to_set["AwbEnable"] = True
+                controls_to_set["AwbMode"] = int(awb_mode)
+            except (TypeError, ValueError) as exc:
+                logger.warning(
+                    "NoIR color correction: invalid awb_mode %r (%s) — skipping",
+                    awb_mode, exc,
+                )
+
+        if ccm is not None:
+            try:
+                ccm_tuple = tuple(float(v) for v in ccm)
+                if len(ccm_tuple) != 9:
+                    raise ValueError(f"expected 9 floats, got {len(ccm_tuple)}")
+                controls_to_set["ColourCorrectionMatrix"] = ccm_tuple
+            except (TypeError, ValueError) as exc:
+                logger.warning(
+                    "NoIR color correction: invalid colour_correction_matrix %r (%s) — skipping",
+                    ccm, exc,
+                )
+
+        if not controls_to_set:
+            logger.info(
+                "NoIR color correction: no controls configured — using picamera2 defaults"
+            )
+            return
+
+        try:
+            self._picam.set_controls(controls_to_set)
+            logger.info("NoIR color correction applied: %s", controls_to_set)
+        except Exception as exc:
+            # Silently degrade — better to have weirdly-coloured video than
+            # no video at all if set_controls fails on this camera/libcamera combo.
+            logger.warning(
+                "NoIR color correction: set_controls failed (%s) — "
+                "falling back to picamera2 defaults. Attempted: %s",
+                exc, controls_to_set,
+            )
+
     def start_camera(self) -> None:
         """Initialise and start the camera hardware (or test-pattern mode)."""
         if _HAS_PICAMERA2:
@@ -70,6 +169,11 @@ class PiCameraTrack(MediaStreamTrack):
                 )
                 self._picam.configure(config)
                 self._picam.start()
+                # Apply NoIR color correction AFTER start() — picamera2's
+                # set_controls works in either order but setting post-start
+                # guarantees libcamera has the sensor initialised and
+                # accepts the controls immediately.
+                self._apply_noir_color_correction()
                 logger.info(
                     f"picamera2 started: {self._width}x{self._height}@{self._framerate}fps"
                 )

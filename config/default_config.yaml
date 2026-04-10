@@ -135,6 +135,60 @@ camera:
       username: "ugv"
       credential: "ugvturn2026"
 
+  # NoIR (no infrared cut filter) color correction tuning.
+  #
+  # The Pi Camera Module 3 NoIR has no IR cut filter on the sensor. Under
+  # normal indoor lighting (LED, fluorescent, mixed daylight), the
+  # infrared component of the light bleeds into all three RGB channels,
+  # making whites look pinkish, dark colors look purple/blue, and skin
+  # tones look off. picamera2 / libcamera expose AWB mode, manual color
+  # gains, and a full 3x3 color correction matrix -- these controls let
+  # us compensate in software without needing to install a physical IR
+  # cut filter on the lens.
+  #
+  # The defaults below are a sensible starting point for NoIR under
+  # typical indoor LED + fluorescent lighting. If the colors still look
+  # off for YOUR lighting, tune them:
+  #
+  #   1. Try a different awb_mode first. libcamera AwbMode integer values:
+  #        0 = Auto           (often wrong for NoIR -- picks bad gains)
+  #        1 = Incandescent   (warm indoor light, good default for NoIR)
+  #        2 = Tungsten       (very warm, older bulbs)
+  #        3 = Fluorescent    (cool white fluorescent)
+  #        4 = Indoor         (general indoor, similar to fluorescent)
+  #        5 = Daylight       (bright outdoor)
+  #        6 = Cloudy         (diffuse outdoor)
+  #        7 = Custom         (use with colour_correction_matrix below)
+  #
+  #   2. If awb_mode alone is not enough, set colour_gains to fixed
+  #      [red, blue] values. This DISABLES auto white balance. Typical
+  #      values for NoIR under warm indoor light: [1.0, 1.8] or [0.9, 2.0].
+  #      Lower red and higher blue compensate for the IR bleed into the
+  #      red channel.
+  #
+  #   3. For extreme cases (very purple darks, very pink whites), fill in
+  #      colour_correction_matrix with a custom 9-element (row-major 3x3)
+  #      matrix that subtracts IR component from each RGB channel. Expert
+  #      tuning -- leave at null unless you know what you are doing.
+  #
+  # If you have a physical IR cut filter installed on the lens
+  # (recommended hardware fix, ~US$10 on AliExpress), set `enabled: false`
+  # below and picamera2 will use its default color pipeline.
+  noir_color_correction:
+    enabled: true
+    # AWB mode: start with Incandescent (1) which works well for NoIR
+    # under warm indoor lighting. If your room is lit with daylight
+    # LEDs or cool fluorescent, try Fluorescent (3) or Indoor (4).
+    awb_mode: 1
+    # Manual [red_gain, blue_gain]. If set, disables AWB entirely.
+    # Leave null to use awb_mode with automatic gain adjustment.
+    colour_gains: null
+    # Custom 3x3 color correction matrix as a 9-element row-major list.
+    # Only set this if awb_mode + colour_gains are not enough for your
+    # lighting. Example that subtracts IR from R and compensates:
+    #   [1.6, -0.3, -0.3, -0.3, 1.5, -0.2, -0.3, -0.2, 1.5]
+    colour_correction_matrix: null
+
 logging:
   level: "INFO"
   file: "/var/log/ugv/ugv.log"

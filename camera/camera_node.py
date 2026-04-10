@@ -63,6 +63,7 @@ class CameraNode(BaseNode):
         self._framerate: int = 30
         self._stun_servers: list[str] = []
         self._turn_servers: list[dict] = []
+        self._noir_correction: dict = {}
 
         # WebRTC state
         self._pc: RTCPeerConnection | None = None
@@ -84,6 +85,10 @@ class CameraNode(BaseNode):
         self._framerate = int(cam_cfg.get("framerate", 30))
         self._stun_servers = cam_cfg.get("stun_servers", [])
         self._turn_servers = cam_cfg.get("turn_servers", [])
+        # Pass-through: PiCameraTrack reads this dict directly to configure
+        # libcamera AWB / colour gains / colour correction matrix. See
+        # config/default_config.yaml for the shape and default values.
+        self._noir_correction = cam_cfg.get("noir_color_correction", {}) or {}
         self.logger.info(
             f"Camera configured: {self._resolution[0]}x{self._resolution[1]}"
             f"@{self._framerate}fps, STUN={len(self._stun_servers)}, TURN={len(self._turn_servers)}"
@@ -193,6 +198,7 @@ class CameraNode(BaseNode):
                 width=self._resolution[0],
                 height=self._resolution[1],
                 framerate=self._framerate,
+                noir_correction=self._noir_correction,
             )
             self._track.start_camera()
 
