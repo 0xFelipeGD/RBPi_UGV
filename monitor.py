@@ -8,6 +8,7 @@ Usage:
     # open http://<PI_IP>:8080 in browser
 """
 import json
+import logging
 import os
 import queue
 import sys
@@ -47,6 +48,7 @@ def _load_config() -> dict:
 
 
 cfg = _load_config()
+_log = logging.getLogger(__name__)
 
 # ── Shared state ──────────────────────────────────────────────────────────────
 _state: dict = {"connected": False, "rx_count": 0}
@@ -123,8 +125,8 @@ def _on_message(client, userdata, msg):
                 rtt_ms = time.monotonic() * 1000 - t_sent
                 _push(json.dumps({"type": "latency", "rtt": round(rtt_ms, 1)}))
             # If ping was never seen (missed), skip — no cross-clock RTT computation.
-    except Exception:
-        pass
+    except (json.JSONDecodeError, KeyError, ValueError) as e:
+        _log.debug("_on_message: malformed payload on %s: %s", msg.topic, e)
 
 
 def _start_mqtt() -> mqtt.Client:

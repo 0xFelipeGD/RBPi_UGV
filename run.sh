@@ -13,14 +13,20 @@ fi
 source "$VENV_DIR/bin/activate"
 cd "$SCRIPT_DIR"
 
-python3 monitor.py &
-MONITOR_PID=$!
+MONITOR_PID=""
+if [ "${MONITOR_ENABLED:-1}" = "1" ]; then
+    python3 monitor.py &
+    MONITOR_PID=$!
+    echo "[INFO] UGV Monitor → http://$(hostname -I | awk '{print $1}'):8080"
+else
+    echo "[INFO] UGV Monitor disabled (MONITOR_ENABLED=0)"
+fi
 
 cleanup() {
-    kill "$MONITOR_PID" 2>/dev/null || true
+    if [ -n "$MONITOR_PID" ]; then
+        kill "$MONITOR_PID" 2>/dev/null || true
+    fi
 }
 trap cleanup SIGINT SIGTERM EXIT
-
-echo "[INFO] UGV Monitor → http://$(hostname -I | awk '{print $1}'):8080"
 
 python3 main.py "$@"

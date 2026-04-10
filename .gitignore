@@ -1,9 +1,38 @@
-venv/
-.test_venv/
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
-*.pyc
-.pytest_cache/
-config/config.yaml
+*.py[cod]
+*.pyo
+*.pyd
 *.egg-info/
+*.egg
+.eggs/
 dist/
 build/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ── Testing & linting caches ──────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+ugv.log
+
+# ── Credentials & secrets (operator-specific config) ─────────────────────────
+config/config.yaml
+
+# ── OS & editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

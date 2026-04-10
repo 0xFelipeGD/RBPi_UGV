@@ -55,6 +55,8 @@ class DriveNode(BaseNode):
         """Load drive config and initialize motor backend."""
         drive_cfg = self.config.get("drive", {})
         self._mode = drive_cfg.get("mode", "arcade")
+        if self._mode not in ("arcade", "tank"):
+            raise ValueError(f"Unknown drive mode: {self._mode!r}. Expected 'arcade' or 'tank'.")
         self._ramp_rate = drive_cfg.get("ramp_rate", 2.0)
         self._ramp_down_time = self.config.get("safety", {}).get("ramp_down_time", 0.5)
         self._arcade_cfg = drive_cfg.get("arcade", {})
@@ -195,8 +197,8 @@ class DriveNode(BaseNode):
             return tank_mix(left_val, right_val)
 
         else:
-            self.logger.warning(f"Unknown drive mode: {self._mode}")
-            return (0.0, 0.0)
+            # on_configure already validated self._mode — this branch is unreachable.
+            raise AssertionError(f"Unexpected drive mode: {self._mode!r}")
 
     @staticmethod
     def _ramp(current: float, target: float, max_step: float) -> float:
