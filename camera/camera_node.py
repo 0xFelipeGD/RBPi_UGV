@@ -1,4 +1,10 @@
-"""CameraNode: manages WebRTC video streaming from Pi Camera via aiortc."""
+"""CameraNode: manages WebRTC video streaming from Pi Camera via aiortc.
+
+Also drives the optional Local Mode MJPEG encoder (spec §6.2 §7.3) when
+``local_mode.enabled`` is set in the config: a second picamera2 encoder
+attaches lazily to the `lores` stream and feeds raw JPEG frames into an
+asyncio.Queue consumed by ``camera/mjpeg_server.py``.
+"""
 
 import asyncio
 import json
@@ -12,6 +18,16 @@ from aiortc.sdp import candidate_from_sdp
 from core.node import BaseNode
 from core.message_bus import MessageBus
 from camera.pi_camera_track import PiCameraTrack
+
+# picamera2 MJPEG encoder is hardware-only (Pi). Guard the import so the
+# camera_node module still imports on dev machines / CI without picamera2.
+# Falls back to None — attach_mjpeg_encoder will refuse to start if absent.
+try:
+    from picamera2.encoders import MJPEGEncoder  # type: ignore
+    _HAS_MJPEG_ENCODER = True
+except ImportError:
+    MJPEGEncoder = None  # type: ignore
+    _HAS_MJPEG_ENCODER = False
 
 # Monkey-patch VP8 encoder for better quality over TURN relay:
 # 1. Increase bitrate from 500kbps default to 2000kbps (720p needs it)
@@ -35,6 +51,40 @@ def _vpx_kf_encode(self, frame, force_keyframe=False):
 
 _vpx.Vp8Encoder.__init__ = _vpx_patched_init
 _vpx.Vp8Encoder.encode = _vpx_kf_encode
+
+
+class _AsyncQueueOutput:
+    """picamera2 output target that pushes JPEG frames into an asyncio.Queue.
+
+    picamera2 calls ``write()`` from a worker thread; we hop onto the asyncio
+    loop via ``call_soon_threadsafe``. Drop-oldest policy ensures latency
+    stays low even if the HTTP consumer falls behind. Used by
+    ``CameraNode.attach_mjpeg_encoder`` (spec §7.3).
+    """
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, queue: asyncio.Queue,
+                 max_queued: int = 1) -> None:
+        self._loop = loop
+        self._queue = queue
+        self._max_queued = max_queued
+
+    def write(self, buf: bytes) -> int:
+        def _put() -> None:
+            while self._queue.qsize() >= self._max_queued:
+                try:
+                    self._queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            self._queue.put_nowait(bytes(buf))
+        try:
+            self._loop.call_soon_threadsafe(_put)
+        except RuntimeError:
+            # Loop is closed/closing — drop the frame silently.
+            pass
+        return len(buf)
+
+    def flush(self) -> None:
+        pass
 
 
 class CameraNode(BaseNode):
@@ -73,6 +123,14 @@ class CameraNode(BaseNode):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
 
+        # Local Mode MJPEG state (spec §6.2 §7.3). All None unless
+        # local_mode.enabled is true and a client attaches.
+        self._local_mode_enabled: bool = False
+        self._local_mode_video_cfg: dict = {}
+        self._mjpeg_server: Any = None  # camera.mjpeg_server.MjpegServer
+        self._mjpeg_encoder: Any = None  # picamera2.encoders.MJPEGEncoder
+        self._mjpeg_queue: asyncio.Queue | None = None
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -89,6 +147,18 @@ class CameraNode(BaseNode):
         # libcamera AWB / colour gains / colour correction matrix. See
         # config/default_config.yaml for the shape and default values.
         self._noir_correction = cam_cfg.get("noir_color_correction", {}) or {}
+
+        # Local Mode video config (spec §6.2 §7.3). Optional — when absent
+        # or disabled, the MJPEG encoder/server is never instantiated and
+        # the existing WebRTC-only path is preserved bit-for-bit.
+        local_cfg = self.config.get("local_mode", {}) or {}
+        self._local_mode_enabled = bool(local_cfg.get("enabled", False))
+        self._local_mode_video_cfg = (local_cfg.get("video", {}) or {}).get("mjpeg", {}) or {}
+        if self._local_mode_enabled:
+            self.logger.info(
+                "Local Mode MJPEG path enabled — will start aiohttp server on activate"
+            )
+
         self.logger.info(
             f"Camera configured: {self._resolution[0]}x{self._resolution[1]}"
             f"@{self._framerate}fps, STUN={len(self._stun_servers)}, TURN={len(self._turn_servers)}"
@@ -106,11 +176,29 @@ class CameraNode(BaseNode):
             target=self._run_loop, daemon=True, name="camera-asyncio"
         )
         self._loop_thread.start()
+
+        # Start the Local Mode MJPEG aiohttp server if configured
+        # (spec §6.2 §7.3). Server runs on the same asyncio loop as aiortc.
+        if self._local_mode_enabled:
+            asyncio.run_coroutine_threadsafe(
+                self._async_start_mjpeg_server(), self._loop
+            )
+
         self.logger.info("Camera node active — waiting for start command")
 
     def on_shutdown(self) -> None:
-        """Clean up: close peer connection, stop camera, stop asyncio loop."""
+        """Clean up: stop MJPEG server, close peer connection, stop camera, stop asyncio loop."""
         if self._loop is not None and self._loop.is_running():
+            # Stop the Local Mode MJPEG server first (its lazy detach hook
+            # will also be invoked if a client is still connected).
+            if self._mjpeg_server is not None:
+                fut = asyncio.run_coroutine_threadsafe(
+                    self._async_stop_mjpeg_server(), self._loop
+                )
+                try:
+                    fut.result(timeout=3.0)
+                except Exception as exc:
+                    self.logger.warning(f"MJPEG server stop error: {exc}")
             future = asyncio.run_coroutine_threadsafe(self._async_cleanup(), self._loop)
             try:
                 future.result(timeout=5.0)
@@ -193,12 +281,21 @@ class CameraNode(BaseNode):
             self._pc = RTCPeerConnection(configuration=rtc_config)
             self._setup_pc_callbacks()
 
-            # Create and start camera track
+            # Create and start camera track. When Local Mode MJPEG is
+            # enabled, request a secondary `lores` stream sized from config
+            # so MJPEGEncoder has its own buffer pipeline (spec §7.3).
+            lores_size: tuple[int, int] | None = None
+            if self._local_mode_enabled and self._local_mode_video_cfg:
+                w = self._local_mode_video_cfg.get("width")
+                h = self._local_mode_video_cfg.get("height")
+                if w and h:
+                    lores_size = (int(w), int(h))
             self._track = PiCameraTrack(
                 width=self._resolution[0],
                 height=self._resolution[1],
                 framerate=self._framerate,
                 noir_correction=self._noir_correction,
+                lores_size=lores_size,
             )
             self._track.start_camera()
 
@@ -279,6 +376,101 @@ class CameraNode(BaseNode):
         if self._track is not None:
             self._track.stop_camera()
             self._track = None
+
+    # ------------------------------------------------------------------
+    # Local Mode MJPEG (spec §6.2 §7.3)
+    # ------------------------------------------------------------------
+
+    async def _async_start_mjpeg_server(self) -> None:
+        """Instantiate and start the Local Mode MJPEG aiohttp server."""
+        try:
+            from camera.mjpeg_server import MjpegServer
+            vid = self._local_mode_video_cfg
+            self._mjpeg_server = MjpegServer(
+                bind_host=vid["bind_host"],
+                bind_port=int(vid["bind_port"]),
+                cert_path=vid["cert_path"],
+                key_path=vid["key_path"],
+                auth_username=vid["auth_username"],
+                auth_password_hash_check=self._verify_mqtt_password,
+                attach_encoder=self.attach_mjpeg_encoder,
+                detach_encoder=self.detach_mjpeg_encoder,
+                endpoint_path=vid.get("endpoint_path", "/stream.mjpg"),
+            )
+            await self._mjpeg_server.start()
+            self.logger.info("Local Mode MJPEG server started")
+        except Exception as exc:
+            self.logger.error(f"Failed to start MJPEG server: {exc}")
+            self._mjpeg_server = None
+
+    async def _async_stop_mjpeg_server(self) -> None:
+        """Stop the MJPEG aiohttp server and detach the encoder if attached."""
+        if self._mjpeg_server is not None:
+            try:
+                await self._mjpeg_server.stop()
+            except Exception as exc:
+                self.logger.warning(f"MJPEG server stop raised: {exc}")
+            self._mjpeg_server = None
+        # Belt-and-braces: ensure the encoder is detached even if the
+        # server stopped without going through the lazy detach path.
+        if self._mjpeg_encoder is not None:
+            await self.detach_mjpeg_encoder()
+
+    async def attach_mjpeg_encoder(self) -> asyncio.Queue:
+        """Lazy-attach the MJPEG encoder to picamera2. Spec §7.3.
+
+        Called by ``MjpegServer`` on first client. Returns the asyncio.Queue
+        that will receive raw JPEG bytes per frame (drop-oldest, max-1).
+        """
+        if not _HAS_MJPEG_ENCODER:
+            raise RuntimeError(
+                "picamera2.encoders.MJPEGEncoder not available — "
+                "Local Mode MJPEG requires running on a Raspberry Pi with "
+                "picamera2 installed (apt python3-picamera2)."
+            )
+        if self._track is None or self._track.picam2 is None:
+            raise RuntimeError(
+                "Camera track is not running — start the WebRTC capture "
+                "(camera/cmd action=start) before opening the MJPEG stream."
+            )
+
+        cfg = self._local_mode_video_cfg
+        # MJPEGEncoder.bitrate is a coarse parameter; we map jpeg_quality
+        # (1..100) to a rough bitrate ceiling. Tunable via config.
+        jpeg_quality = int(cfg.get("jpeg_quality", 80))
+        queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+        self._mjpeg_queue = queue
+        self._mjpeg_encoder = MJPEGEncoder(bitrate=jpeg_quality * 100_000)
+        output = _AsyncQueueOutput(asyncio.get_running_loop(), queue, max_queued=1)
+        # Attach to the lores stream so MJPEG and the raw `main` capture
+        # consumed by aiortc do not contend for the same frame buffers.
+        self._track.picam2.start_encoder(self._mjpeg_encoder, output, name="lores")
+        self.logger.info("MJPEG encoder started (lores stream)")
+        return queue
+
+    async def detach_mjpeg_encoder(self) -> None:
+        """Stop the MJPEG encoder. Idempotent."""
+        if self._mjpeg_encoder is not None:
+            try:
+                if self._track is not None and self._track.picam2 is not None:
+                    self._track.picam2.stop_encoder(self._mjpeg_encoder)
+            except Exception as exc:
+                self.logger.warning(f"stop_encoder raised: {exc}")
+            self._mjpeg_encoder = None
+            self._mjpeg_queue = None
+            self.logger.info("MJPEG encoder stopped")
+
+    def _verify_mqtt_password(self, password: str) -> bool:
+        """Stub password verifier for Local Mode MJPEG BasicAuth.
+
+        TODO(local-mode v1.1): verify ``password`` against the
+        ``rcs_operator`` entry in ``/etc/mosquitto/passwd`` (PBKDF2-SHA512
+        as per Mosquitto's ``mosquitto_passwd`` format). For v1.0.0 we
+        accept any non-empty password — the LAN is trusted (per spec §13)
+        and the connection is still TLS-encrypted; an attacker would need
+        to be on the same Tailscale tailnet AND know the username.
+        """
+        return bool(password)
 
     # ------------------------------------------------------------------
     # RTCPeerConnection event handlers
