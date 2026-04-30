@@ -37,6 +37,10 @@ class TelemetryNode(BaseNode):
         self._gps: GpsReading | None = None
         self._safety: SafetyStatus | None = None
 
+        # Dual-link state snapshot (spec §11 — links field).
+        # Default DOWN/DOWN until MqttBridgeNode publishes a real snapshot.
+        self._link_snapshot: dict = {"local": "DOWN", "vps": "DOWN"}
+
     def on_configure(self) -> None:
         """Load telemetry config and subscribe to sensor topics."""
         telem_cfg = self.config.get("telemetry", {})
@@ -46,6 +50,7 @@ class TelemetryNode(BaseNode):
         self.bus.subscribe("sensor.temperature", self._on_temperature)
         self.bus.subscribe("sensor.gps", self._on_gps)
         self.bus.subscribe("safety.status", self._on_safety)
+        self.bus.subscribe("mqtt.link_state", self._on_link_state)
 
         self.logger.info(f"Telemetry configured: publish rate = {self._publish_rate_hz} Hz")
 
@@ -77,6 +82,30 @@ class TelemetryNode(BaseNode):
         with self._lock:
             self._safety = msg
 
+    def _on_link_state(self, snapshot) -> None:
+        """Cache the latest dual-link snapshot for the next telemetry publish.
+
+        MqttBridgeNode publishes ``DualLinkSnapshot`` instances to
+        ``mqtt.link_state``. We accept either that object (preferred) or a
+        plain ``{"local": ..., "vps": ...}`` dict for defensive coding.
+        """
+        # Duck-type: DualLinkSnapshot has a to_telemetry() method.
+        to_telem = getattr(snapshot, "to_telemetry", None)
+        if callable(to_telem):
+            data = to_telem()
+        elif isinstance(snapshot, dict):
+            data = snapshot
+        else:
+            self.logger.warning(
+                f"Unexpected mqtt.link_state payload type: {type(snapshot).__name__}"
+            )
+            return
+        with self._lock:
+            self._link_snapshot = {
+                "local": data.get("local", "DOWN"),
+                "vps": data.get("vps", "DOWN"),
+            }
+
     def _publish_loop(self) -> None:
         """Publish telemetry at the configured rate."""
         interval = 1.0 / max(self._publish_rate_hz, 0.1)
@@ -95,12 +124,15 @@ class TelemetryNode(BaseNode):
             temp = self._temperature
             gps = self._gps
             safety = self._safety
+            links = dict(self._link_snapshot)
 
         # Build custom fields
         custom: dict = {}
         if safety:
             custom["armed"] = safety.armed
             custom["hb_age"] = round(safety.heartbeat_age_ms, 1)
+        # Spec §11: links field — keys local/vps, values UP/DOWN/DEGRADED.
+        custom["links"] = links
 
         payload = TelemetryPayload(
             timestamp=time.monotonic(),
