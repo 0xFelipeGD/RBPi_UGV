@@ -195,3 +195,30 @@ logging:
   console: true
   max_bytes: 5242880 # 5 MB log rotation
   backup_count: 3
+
+# ── Local Mode (LAN-direct transport — see spec §8.2) ────────────────────────
+local_mode:
+  enabled: false                    # set true by setup.sh "Local Mode setup"
+  mqtt:
+    bind_host: "0.0.0.0"
+    bind_port: 8883
+    cert_path: "/etc/mosquitto/certs/server.crt"
+    key_path: "/etc/mosquitto/certs/server.key"
+    ca_path: "/etc/mosquitto/certs/ca.crt"
+  mdns:
+    hostname: "ugv-rover-01"        # set by setup.sh
+    service_type: "_ugv._tcp"
+  video:
+    enabled: true                   # MJPEG server runs only when local_mode.enabled
+    bind_host: "0.0.0.0"
+    bind_port: 8443
+    endpoint_path: "/stream.mjpg"
+    auth_username: "rcs_operator"
+    cert_path: "/etc/mosquitto/certs/server.crt"
+    key_path: "/etc/mosquitto/certs/server.key"
+    mjpeg:
+      width: 1920
+      height: 1080
+      fps: 30
+      jpeg_quality: 85
+      tcp_nodelay: true

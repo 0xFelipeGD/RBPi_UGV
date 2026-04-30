@@ -57,6 +57,9 @@ class SafetyNode(BaseNode):
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
+        # Per-link aliveness (observability-only; does not affect watchdog logic).
+        self._link_local_alive = False
+        self._link_vps_alive = False
 
     def on_configure(self) -> None:
         """Load safety config and setup E-stop GPIO."""
@@ -77,6 +80,8 @@ class SafetyNode(BaseNode):
 
         # Subscribe to heartbeat
         self.bus.subscribe("command.heartbeat", self._on_heartbeat)
+        # Subscribe to dual-link state for telemetry observability (no behavior change).
+        self.bus.subscribe("mqtt.link_state", self._on_link_state)
 
         self.logger.info(
             f"Safety configured: timeout={self._heartbeat_timeout}s, "
@@ -120,6 +125,12 @@ class SafetyNode(BaseNode):
                 self._set_estop(engaged=False)
                 self._publish_status("ok")
                 self.logger.info("First heartbeat received — ARMED")
+
+    def _on_link_state(self, snapshot):
+        # Accept both DualLinkSnapshot and plain dict from the bus.
+        d = snapshot.to_telemetry() if hasattr(snapshot, "to_telemetry") else dict(snapshot)
+        self._link_local_alive = d.get("local") == "UP"
+        self._link_vps_alive = d.get("vps") == "UP"
 
     def _watchdog_loop(self) -> None:
         """Monitor heartbeat age every 100ms."""

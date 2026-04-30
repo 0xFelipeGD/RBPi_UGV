@@ -49,6 +49,7 @@ class PiCameraTrack(MediaStreamTrack):
         height: int = 720,
         framerate: int = 30,
         noir_correction: dict | None = None,
+        lores_size: tuple[int, int] | None = None,
     ) -> None:
         super().__init__()
         self._width = width
@@ -62,6 +63,13 @@ class PiCameraTrack(MediaStreamTrack):
         # typical indoor lighting.
         self._noir_correction: dict = noir_correction or {}
 
+        # Optional secondary lores stream config (used by Local Mode MJPEG
+        # encoder, spec §6.2 §7.3). When None, only the `main` stream is
+        # configured — preserving the WebRTC-only behaviour. When set, a
+        # YUV420 lores stream is added so MJPEGEncoder can attach to it
+        # without disturbing the main RGB888 stream consumed by aiortc.
+        self._lores_size: tuple[int, int] | None = lores_size
+
         # Frame timing
         self._pts = 0
         self._time_base_num = 1
@@ -72,6 +80,15 @@ class PiCameraTrack(MediaStreamTrack):
 
         # Test-pattern state (used when picamera2 is unavailable)
         self._frame_count = 0
+
+    @property
+    def picam2(self) -> "Picamera2 | None":
+        """Expose the underlying Picamera2 handle so encoders can attach.
+
+        Used by CameraNode.attach_mjpeg_encoder for Local Mode MJPEG.
+        Returns None if picamera2 is not running (test-pattern fallback).
+        """
+        return self._picam
 
     def _apply_noir_color_correction(self) -> None:
         """Apply NoIR color-correction controls to the running camera.
@@ -164,9 +181,20 @@ class PiCameraTrack(MediaStreamTrack):
         if _HAS_PICAMERA2:
             try:
                 self._picam = Picamera2()
-                config = self._picam.create_video_configuration(
-                    main={"size": (self._width, self._height), "format": "RGB888"},
-                )
+                # If a secondary lores stream is requested (Local Mode MJPEG,
+                # spec §7.3), configure both streams so MJPEGEncoder can run
+                # on `lores` without disturbing the WebRTC `main` capture.
+                # `encode="main"` keeps aiortc reading from the main stream.
+                cfg_kwargs: dict = {
+                    "main": {"size": (self._width, self._height), "format": "RGB888"},
+                    "encode": "main",
+                }
+                if self._lores_size is not None:
+                    cfg_kwargs["lores"] = {
+                        "size": self._lores_size,
+                        "format": "YUV420",
+                    }
+                config = self._picam.create_video_configuration(**cfg_kwargs)
                 self._picam.configure(config)
                 self._picam.start()
                 # Apply NoIR color correction AFTER start() — picamera2's
